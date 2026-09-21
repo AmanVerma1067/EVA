@@ -1,0 +1,39 @@
+{
+  "name": "eva-agent",
+  "version": "0.1.0",
+  "description": "EVA — private, permission-driven AI operating layer for developers",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "files": ["dist", "bin", "README.md"],
+  "bin": {
+    "eva": "./bin/eva"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:security": "vitest run tests/security",
+    "test:live": "tsx scripts/live_test.ts",
+    "voice": "tsx src/server.ts",
+    "start": "tsx src/index.ts",
+    "cli": "tsx src/cli.ts",
+    "doctor": "tsx src/cli.ts doctor",
+    "prepack": "npm run build"
+  },
+  "keywords": ["ai", "agent", "macos", "linux", "cli", "automation"],
+  "author": "EVA Team",
+  "license": "MIT",
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

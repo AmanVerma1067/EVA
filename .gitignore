@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+
+# Local EVA runtime state & logs
+.eva/
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Compiled native binaries (rebuilt via clang)
+bin/eva-voice-capture
+bin/eva-vision
+
