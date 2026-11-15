@@ -44,7 +44,9 @@ export class TerminalVoiceListener {
 
   constructor(options?: VoiceListenerOptions) {
     this.binaryPath = options?.binaryPath ?? getDefaultVoiceBinaryPath();
-    this.ensureBinary();
+    if (process.platform === 'darwin') {
+      this.ensureBinary();
+    }
   }
 
   public getBinaryPath(): string {
@@ -55,6 +57,10 @@ export class TerminalVoiceListener {
    * Ensures the native macOS audio capture & speech recognition binary is compiled.
    */
   public ensureBinary(): boolean {
+    if (process.platform !== 'darwin') {
+      return false;
+    }
+
     if (fs.existsSync(this.binaryPath)) {
       return true;
     }

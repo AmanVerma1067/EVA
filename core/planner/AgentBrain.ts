@@ -17,6 +17,11 @@ import { normalizeMacAppName } from '../../tools/application/AppLaunchTool.js';
 import { PolicyEngine } from '../../security/policy/PolicyEngine.js';
 import { findClaudeCli, CLAUDE_LIMIT_REGEX } from '../../tools/claude/ClaudeCodeTool.js';
 import { OrchestratorPipeline } from '../orchestrator/OrchestratorPipeline.js';
+import { TokenBudgetRadar } from '../context/TokenBudgetRadar.js';
+import { ASTSymbolParser } from '../context/ASTSymbolParser.js';
+import { YagniDecisionLadder } from '../pragmatic/YagniDecisionLadder.js';
+import { CodeReviewAuditor } from '../pragmatic/CodeReviewAuditor.js';
+import { SelfHealingLoop } from '../refactor/SelfHealingLoop.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -61,6 +66,10 @@ export class AgentBrain {
   private memory?: MemoryStore;
   private policyEngine?: PolicyEngine;
   private orchestratorPipeline?: OrchestratorPipeline;
+  private tokenRadar: TokenBudgetRadar;
+  private yagniLadder: YagniDecisionLadder;
+  private reviewAuditor: CodeReviewAuditor;
+  private selfHealingLoop: SelfHealingLoop;
   private logger = rootLogger.child('brain');
   private lastExecution?: {
     toolName: string;
@@ -80,6 +89,10 @@ export class AgentBrain {
     memory?: MemoryStore;
     policyEngine?: PolicyEngine;
     orchestratorPipeline?: OrchestratorPipeline;
+    tokenRadar?: TokenBudgetRadar;
+    yagniLadder?: YagniDecisionLadder;
+    reviewAuditor?: CodeReviewAuditor;
+    selfHealingLoop?: SelfHealingLoop;
   }) {
     this.router = options.router;
     this.voice = options.voice ?? new VoiceSystem();
@@ -87,6 +100,10 @@ export class AgentBrain {
     this.memory = options.memory;
     this.policyEngine = options.policyEngine;
     this.orchestratorPipeline = options.orchestratorPipeline;
+    this.tokenRadar = options.tokenRadar ?? new TokenBudgetRadar();
+    this.yagniLadder = options.yagniLadder ?? new YagniDecisionLadder();
+    this.reviewAuditor = options.reviewAuditor ?? new CodeReviewAuditor();
+    this.selfHealingLoop = options.selfHealingLoop ?? new SelfHealingLoop({ yagniLadder: this.yagniLadder, reviewAuditor: this.reviewAuditor });
 
     // Hydrate previous execution state from persistent memory if available
     if (this.memory) {
@@ -111,6 +128,22 @@ export class AgentBrain {
       this.orchestratorPipeline = new OrchestratorPipeline({ router: this.router });
     }
     return this.orchestratorPipeline;
+  }
+
+  public getTokenRadar(): TokenBudgetRadar {
+    return this.tokenRadar;
+  }
+
+  public getYagniLadder(): YagniDecisionLadder {
+    return this.yagniLadder;
+  }
+
+  public getReviewAuditor(): CodeReviewAuditor {
+    return this.reviewAuditor;
+  }
+
+  public getSelfHealingLoop(): SelfHealingLoop {
+    return this.selfHealingLoop;
   }
 
   public isDialogueQuery(goal: string): boolean {
@@ -1153,6 +1186,68 @@ Speak or type anytime!`;
       ];
     }
 
+    if (/\b(?:tokens?|budget|token\s+usage|token\s+radar|how\s+many\s+tokens|token\s+status)\b/i.test(text)) {
+      return [
+        {
+          thought: 'Inspecting real-time token budget, usage radar, and quota limits.',
+          toolName: 'context.budget',
+          parameters: { action: 'status' },
+        },
+      ];
+    }
+
+    const analyzeMatch = goal.match(/(?:analyze|prune|slice|compress)\s+(?:context\s+|file\s+|tokens?\s+for\s+)?([a-zA-Z0-9_./\-]+\.[a-zA-Z0-9]+)/i);
+    if (analyzeMatch) {
+      const filePath = analyzeMatch[1].trim();
+      return [
+        {
+          thought: `Analyzing AST symbols and token context slice for '${filePath}'.`,
+          toolName: 'context.analyze',
+          parameters: { path: filePath },
+        },
+      ];
+    }
+
+    const yagniMatch = goal.match(/(?:check\s+yagni|yagni\s+eval(?:uate)?|evaluate\s+feature|should\s+we\s+add|do\s+we\s+need|is\s+this\s+feature\s+needed)\s+(.+)/i);
+    if (yagniMatch) {
+      const taskDescription = yagniMatch[1].replace(/^(?:for|that|whether|if)\s+/i, '').trim();
+      return [
+        {
+          thought: `Evaluating task against the 7-step Ponytail YAGNI decision ladder: '${taskDescription}'`,
+          toolName: 'pragmatic.yagni_eval',
+          parameters: { taskDescription },
+        },
+      ];
+    }
+
+    const reviewMatch = goal.match(/(?:audit|review|lint)\s+(?:code\s+(?:in\s+)?|file\s+)?([a-zA-Z0-9_./\-]+\.[a-zA-Z0-9]+)/i);
+    if (reviewMatch) {
+      const filePath = reviewMatch[1].trim();
+      return [
+        {
+          thought: `Auditing code quality, security rules, and anti-over-engineering standards for '${filePath}'.`,
+          toolName: 'code.review',
+          parameters: { path: filePath },
+        },
+      ];
+    }
+
+    const refactorMatch = goal.match(/(?:refactor|self[\s-]heal(?:ing)?)\s+(?:file\s+)?([a-zA-Z0-9_./\-]+\.[a-zA-Z0-9]+)(?:\s+(?:to|with|for)\s+(.+))?/i);
+    if (refactorMatch) {
+      const targetFile = refactorMatch[1].trim();
+      const goalDesc = refactorMatch[2]?.trim() || `Refactor and test ${targetFile}`;
+      return [
+        {
+          thought: `Executing autonomous self-healing refactor loop on '${targetFile}': ${goalDesc}`,
+          toolName: 'dev.self_healing_refactor',
+          parameters: {
+            targetFiles: [targetFile],
+            refactorGoal: goalDesc,
+          },
+        },
+      ];
+    }
+
     return [];
   }
 
@@ -1451,6 +1546,26 @@ Speak or type anytime!`;
             : `Command failed with exit code ${data.exitCode}.`;
         }
         responseText = spokenSummary;
+      } else if (step.toolName === 'context.budget') {
+        const data = result.data as any;
+        spokenSummary = `Total tokens used: ${data?.sessionTotalTokens ?? 0} costing $${data?.costUsd ?? 0} USD.`;
+        responseText = `${data?.gauge ?? ''}\n• Input Tokens: ${data?.inputTokens?.toLocaleString?.() ?? data?.inputTokens}\n• Output Tokens: ${data?.outputTokens?.toLocaleString?.() ?? data?.outputTokens}\n• Daily Limit: ${data?.dailyLimit?.toLocaleString?.() ?? data?.dailyLimit} (${data?.usagePercentage}% consumed)\n• Remaining: ${data?.remainingTokens?.toLocaleString?.() ?? data?.remainingTokens} tokens`;
+      } else if (step.toolName === 'context.analyze') {
+        const data = result.data as any;
+        spokenSummary = `Context analysis for ${data?.filePath} achieved ${data?.reductionPercentage}% token reduction.`;
+        responseText = `Context Analysis (${data?.filePath}):\n• Original Tokens: ${data?.originalTokens}\n• Sliced Tokens: ${data?.slicedTokens} (${data?.reductionPercentage}% reduction, ${data?.tokensSaved} tokens saved)\n• Symbols Indexed: ${data?.symbolsCount}\n\nHigh-Signal Context Slice:\n${data?.contextSlice}`;
+      } else if (step.toolName === 'pragmatic.yagni_eval') {
+        const data = result.data as any;
+        spokenSummary = `YAGNI evaluation: ${data?.decision} at step ${data?.step} (${data?.stepName}). ${data?.approved ? 'Approved' : 'Rejected'}.`;
+        responseText = `Ponytail YAGNI Decision: ${data?.decision} (Step ${data?.step}: ${data?.stepName})\n• Status: ${data?.approved ? 'APPROVED' : 'REJECTED'}\n• Mode: ${data?.mode}\n• Rationale: ${data?.rationale}\n• Suggested Approach: ${data?.suggestedApproach}\n• LOC Budget: ${data?.locBudget} lines\n${data?.warnings?.length ? `• Warnings: ${data.warnings.join('; ')}\n` : ''}${data?.remediation ? `• Remediation: ${data.remediation}` : ''}`.trim();
+      } else if (step.toolName === 'code.review') {
+        const data = result.data as any;
+        spokenSummary = `Code review for ${data?.filePath || 'target'} scored ${data?.score} out of 100, verdict ${data?.verdict}.`;
+        responseText = data?.summary ?? `Code Review: Score ${data?.score}/100 [${data?.verdict}] (${data?.violationsCount} issues found)`;
+      } else if (step.toolName === 'dev.self_healing_refactor') {
+        const data = result.data as any;
+        spokenSummary = `Self-healing refactor ${data?.status === 'SUCCESS' ? 'succeeded and passed all tests' : 'was rolled back safely'}.`;
+        responseText = `Autonomous Self-Healing Refactor Result:\n• Status: ${data?.status}\n• Goal: ${data?.refactorGoal}\n• Files Applied: ${data?.appliedFiles?.join(', ') || 'None'}\n• Rollback Occurred: ${data?.rollbackOccurred ? 'YES' : 'NO'}${data?.rollbackReason ? `\n• Rollback Reason: ${data?.rollbackReason}` : ''}\n• Duration: ${data?.durationMs}ms\n\n${data?.diffSummary ? `Diff Summary:\n${data?.diffSummary}` : ''}`.trim();
       } else {
         spokenSummary = `Step completed: ${step.thought}`;
         responseText = spokenSummary;
@@ -1469,6 +1584,14 @@ Speak or type anytime!`;
     if (request.speakResponse !== false) {
       await this.voice.speak(spokenSummary);
     }
+
+    const inputTokens = ASTSymbolParser.estimateTokens(request.goal + ' ' + (enhanced?.enhancedPrompt ?? ''));
+    const outputTokens = ASTSymbolParser.estimateTokens((responseText || spokenSummary) + ' ' + spokenSummary);
+    this.tokenRadar.recordUsage({
+      inputTokens,
+      outputTokens,
+      taskId: request.taskId || request.sessionId,
+    });
 
     return {
       goal: request.goal,

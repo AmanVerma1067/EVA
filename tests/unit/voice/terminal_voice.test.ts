@@ -19,7 +19,11 @@ describe('TerminalVoiceListener Native macOS STT & Recording', () => {
 
   it('should ensure the native voice binary exists', () => {
     const ok = listener.ensureBinary();
-    expect(ok).toBe(true);
+    if (process.platform === 'darwin') {
+      expect(ok).toBe(true);
+    } else {
+      expect(ok).toBe(false);
+    }
   });
 
   it('should accurately transcribe speech audio to text', async () => {

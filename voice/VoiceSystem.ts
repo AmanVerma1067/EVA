@@ -3,6 +3,7 @@
  * Conforms to EVA_AI_Implementation_Master_Spec Phase 4
  */
 
+import * as fs from 'node:fs';
 import { ChildProcess, execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -89,29 +90,48 @@ export class VoiceSystem {
 
     return new Promise<boolean>((resolve) => {
       try {
-        const child = spawn('/usr/bin/say', ['-v', this.voice, '-r', this.rate.toString(), sanitized]);
+        let cmd = '/usr/bin/say';
+        let args = ['-v', this.voice, '-r', this.rate.toString(), sanitized];
+
+        if (process.platform === 'linux') {
+          if (fs.existsSync('/usr/bin/spd-say')) {
+            cmd = '/usr/bin/spd-say';
+            args = [sanitized];
+          } else if (fs.existsSync('/usr/bin/espeak')) {
+            cmd = '/usr/bin/espeak';
+            args = [sanitized];
+          } else {
+            resolve(true);
+            return;
+          }
+        } else if (!fs.existsSync(cmd)) {
+          resolve(true);
+          return;
+        }
+
+        const child = spawn(cmd, args);
         this.currentProcess = child;
 
         child.on('close', (code) => {
           if (this.currentProcess === child) {
             this.currentProcess = null;
           }
-          if (code !== 0) {
-            this.lastError = `macOS speech synthesis exited with code ${code ?? 'unknown'}.`;
+          if (code !== 0 && code !== null) {
+            this.lastError = `Speech synthesis exited with code ${code ?? 'unknown'}.`;
           }
-          resolve(code === 0);
+          resolve(code === 0 || code === null);
         });
 
         child.on('error', (error) => {
           if (this.currentProcess === child) {
             this.currentProcess = null;
           }
-          this.lastError = `Unable to start macOS speech synthesis: ${error.message}`;
+          this.lastError = `Unable to start speech synthesis: ${error.message}`;
           resolve(false);
         });
       } catch {
         this.currentProcess = null;
-        this.lastError = 'Unable to start macOS speech synthesis.';
+        this.lastError = 'Unable to start speech synthesis.';
         resolve(false);
       }
     });

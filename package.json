@@ -28,6 +28,7 @@
   "author": "EVA Team",
   "license": "MIT",
   "dependencies": {
+    "typescript": "^5.5.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {

@@ -79,14 +79,24 @@ export function redactSecrets(input: unknown): unknown {
   return input;
 }
 
+let globalMinLevel: LogLevel = (process.env.EVA_LOG_LEVEL as LogLevel) ?? 'info';
+
+export function setGlobalLogLevel(level: LogLevel): void {
+  globalMinLevel = level;
+}
+
+export function getGlobalLogLevel(): LogLevel {
+  return globalMinLevel;
+}
+
 export class Logger {
   private component: string;
-  private minLevel: LogLevel;
+  private minLevel?: LogLevel;
   private sink: (entry: LogEntry) => void;
 
   constructor(options: LoggerOptions) {
     this.component = options.component;
-    this.minLevel = options.minLevel ?? (process.env.EVA_LOG_LEVEL as LogLevel) ?? 'info';
+    this.minLevel = options.minLevel;
     this.sink = options.sink ?? ((entry) => {
       const formatted = JSON.stringify(entry);
       if (entry.level === 'error' || entry.level === 'security') {
@@ -95,6 +105,10 @@ export class Logger {
         process.stdout.write(formatted + '\n');
       }
     });
+  }
+
+  public setMinLevel(level: LogLevel): void {
+    this.minLevel = level;
   }
 
   public child(childComponent: string): Logger {
@@ -106,7 +120,8 @@ export class Logger {
   }
 
   private shouldLog(level: LogLevel): boolean {
-    return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[this.minLevel];
+    const effectiveMin = this.minLevel ?? globalMinLevel;
+    return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[effectiveMin];
   }
 
   private log(level: LogLevel, message: string, context?: Record<string, unknown>, error?: unknown): void {

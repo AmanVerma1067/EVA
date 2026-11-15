@@ -189,6 +189,9 @@ export function createVoiceServer(runtime: EvaRuntime, port = 8765): http.Server
     res.end(JSON.stringify({ error: 'Not Found' }));
   });
 
+  // Attach RFC 6455 WebSocket Gateway for iOS Companion & Mobile WebSocket Task
+  runtime.gateway.attachToServer(server);
+
   return server;
 }
 

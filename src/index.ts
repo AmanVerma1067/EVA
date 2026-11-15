@@ -43,6 +43,19 @@ import { GitStatusTool, GitCommitTool } from '../tools/developer/GitTool.js';
 import { BrowserOpenTool, BrowserReadPageTool } from '../tools/browser/BrowserTool.js';
 import { RemindersAddTool } from '../tools/system/RemindersTool.js';
 import { MacSystemStatusTool } from '../tools/system/MacSystemStatusTool.js';
+import { ContextAnalyzeTool, ContextBudgetTool } from '../tools/developer/ContextTools.js';
+import { PragmaticYagniTool, CodeReviewTool } from '../tools/developer/PragmaticTools.js';
+import { SelfHealingRefactorTool } from '../tools/developer/RefactorTools.js';
+import { CompanionStatusTool, RemoteApproveTool } from '../tools/developer/CompanionTools.js';
+import { BenchmarkRunTool, LocalInferenceStatusTool } from '../tools/developer/BenchmarkTools.js';
+import { TokenBudgetRadar } from '../core/context/TokenBudgetRadar.js';
+import { ContextPruner } from '../core/context/ContextPruner.js';
+import { YagniDecisionLadder } from '../core/pragmatic/YagniDecisionLadder.js';
+import { CodeReviewAuditor } from '../core/pragmatic/CodeReviewAuditor.js';
+import { SelfHealingLoop } from '../core/refactor/SelfHealingLoop.js';
+import { WebSocketGateway } from '../core/companion/WebSocketGateway.js';
+import { AcademicBenchmarkSuite } from '../core/evaluation/AcademicBenchmarkSuite.js';
+import { LocalInferenceEngine } from '../core/inference/LocalInferenceEngine.js';
 
 export interface EvaRuntime {
   config: ReturnType<typeof getConfig>;
@@ -58,6 +71,14 @@ export interface EvaRuntime {
   voiceListener: TerminalVoiceListener;
   brain: AgentBrain;
   emailDrafts: EmailDraftCoordinator;
+  tokenRadar: TokenBudgetRadar;
+  contextPruner: ContextPruner;
+  yagniLadder: YagniDecisionLadder;
+  reviewAuditor: CodeReviewAuditor;
+  selfHealingLoop: SelfHealingLoop;
+  gateway: WebSocketGateway;
+  benchmarkSuite: AcademicBenchmarkSuite;
+  localInference: LocalInferenceEngine;
 }
 
 export function createEvaRuntime(options?: { voiceEnabled?: boolean }): EvaRuntime {
@@ -123,6 +144,35 @@ export function createEvaRuntime(options?: { voiceEnabled?: boolean }): EvaRunti
   registry.register(new RemindersAddTool());
   registry.register(new MacSystemStatusTool());
 
+  // Phase 18 Context & Token Engine Tools
+  const tokenRadar = new TokenBudgetRadar({ homeManager: home });
+  const contextPruner = new ContextPruner();
+  registry.register(new ContextAnalyzeTool({ pruner: contextPruner }));
+  registry.register(new ContextBudgetTool({ radar: tokenRadar }));
+
+  // Phase 19 "Ponytail" Pragmatic AI Developer Tools
+  const yagniLadder = new YagniDecisionLadder({ homeManager: home });
+  const reviewAuditor = new CodeReviewAuditor();
+  registry.register(new PragmaticYagniTool({ ladder: yagniLadder }));
+  registry.register(new CodeReviewTool({ auditor: reviewAuditor }));
+
+  // Phase 20 Autonomous Self-Healing Refactor Tools
+  const selfHealingLoop = new SelfHealingLoop({ homeManager: home, yagniLadder, reviewAuditor });
+  registry.register(new SelfHealingRefactorTool({ loop: selfHealingLoop }));
+
+  const pairingManager = new DevicePairingManager({ storageFile: config.storage.trustedDevicesPath });
+
+  // Phase 21 Production Companion Gateway Tools
+  const gateway = new WebSocketGateway({ pairingManager, policyEngine });
+  registry.register(new CompanionStatusTool({ pairingManager, gateway }));
+  registry.register(new RemoteApproveTool({ policyEngine }));
+
+  // Phase 22 Academic Benchmark & Local Inference Tools
+  const benchmarkSuite = new AcademicBenchmarkSuite();
+  const localInference = new LocalInferenceEngine({ enableSimulationFallback: true });
+  registry.register(new BenchmarkRunTool(benchmarkSuite));
+  registry.register(new LocalInferenceStatusTool(localInference));
+
   logger.info('Registered all system core & integration tools', {
     totalTools: registry.getAll().length,
     tools: registry.getManifests().map((t) => t.name),
@@ -135,10 +185,10 @@ export function createEvaRuntime(options?: { voiceEnabled?: boolean }): EvaRunti
   });
 
   const memory = new MemoryStore({ filePath: home.getDirectoryPath('memory') + '/memory.json' });
-  const pairingManager = new DevicePairingManager({ storageFile: config.storage.trustedDevicesPath });
   const voice = new VoiceSystem({ enabled: options?.voiceEnabled ?? true });
   const voiceListener = new TerminalVoiceListener();
-  const brain = new AgentBrain({ router, voice, memory, policyEngine });
+  const brain = new AgentBrain({ router, voice, memory, policyEngine, tokenRadar, yagniLadder, reviewAuditor, selfHealingLoop });
+  (gateway as any).brain = brain; // Wire brain reference to gateway
   const emailDrafts = new EmailDraftCoordinator();
 
   return {
@@ -155,6 +205,14 @@ export function createEvaRuntime(options?: { voiceEnabled?: boolean }): EvaRunti
     voiceListener,
     brain,
     emailDrafts,
+    tokenRadar,
+    contextPruner,
+    yagniLadder,
+    reviewAuditor,
+    selfHealingLoop,
+    gateway,
+    benchmarkSuite,
+    localInference,
   };
 }
 
